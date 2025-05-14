@@ -21,14 +21,34 @@ impl Cpu {
     }
 
     fn read_operand(&mut self, bus: &mut dyn BusInterface, operand: Operand) -> u8 {
-        0
+        match operand {
+            Operand::Accumulator => self.registers.a,
+            Operand::Memory(addr) => bus.read(addr),
+        }
     }
 
-    fn write_operand(&mut self, bus: &mut dyn BusInterface, operand: Operand) -> u8 {
-        0
+    fn write_operand(&mut self, bus: &mut dyn BusInterface, operand: Operand, data: u8) {
+        match operand {
+            Operand::Accumulator => self.registers.a = data,
+            Operand::Memory(addr) => bus.write(addr, data),
+        }
     }
 
     fn adc(&mut self, bus: &mut dyn BusInterface, operand: Operand) -> u8 {
+        let memory = self.read_operand(bus, operand);
+        let result =
+            self.registers.a as u16 + memory as u16 + self.registers.get_flag(Flag::Carry) as u16;
+
+        self.registers.set_flag(Flag::Carry, result > 0xFF);
+
+        let result = result as u8;
+
+        self.registers.set_flag(Flag::Zero, result == 0);
+        self.registers.set_flag(
+            Flag::Overflow,
+            (self.registers.a ^ result) & (memory & result) & 0x80 != 0,
+        );
+
         0
     }
 
@@ -56,7 +76,7 @@ impl Cpu {
     fn bpl(&mut self, bus: &mut dyn BusInterface, data: Operand) -> u8 {
         0
     }
-    fn brk(&mut self, bus: &mut dyn BusInterface, data: Operand) -> u8 {
+    fn brk(&mut self, bus: &mut dyn BusInterface) -> u8 {
         0
     }
     fn bvc(&mut self, bus: &mut dyn BusInterface, data: Operand) -> u8 {
@@ -208,9 +228,47 @@ impl Registers {
             pc: 0,
         }
     }
+
+    fn get_flag(&self, flag: Flag) -> bool {
+        self.ps & flag.as_mask() != 0
+    }
+
+    fn set_flag(&mut self, flag: Flag, value: bool) {
+        if value {
+            self.ps |= flag.as_mask();
+        } else {
+            self.ps &= !flag.as_mask();
+        }
+    }
 }
 
+#[derive(Debug)]
+enum Flag {
+    Carry,
+    Zero,
+    InterruptDisable,
+    Decimal,
+    Break,
+    Overflow,
+    Negative,
+}
+
+impl Flag {
+    fn as_mask(&self) -> u8 {
+        match self {
+            Flag::Carry => 0,
+            Flag::Zero => 1,
+            Flag::InterruptDisable => 2,
+            Flag::Decimal => 4,
+            Flag::Break => 8,
+            Flag::Overflow => 32,
+            Flag::Negative => 64,
+        }
+    }
+}
+
+#[derive(Debug)]
 enum Operand {
     Accumulator,
-    Memory(u8),
+    Memory(u16),
 }
